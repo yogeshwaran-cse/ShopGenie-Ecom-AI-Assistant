@@ -67,7 +67,7 @@ def generate_answer(query, context):
                     'content':prompt
                 }
             ],
-            model= os.environ['GROQ_MODEL']
+            model= os.environ.get('GROQ_MODEL', 'openai/gpt-oss-20b')
         )
         return completion.choices[0].message.content
     except Exception as e:

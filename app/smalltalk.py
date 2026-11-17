@@ -10,7 +10,7 @@ def talk(query):
     '''
     try:
         completion = groq_client.chat.completions.create(
-            model=os.environ['GROQ_MODEL'],
+            model=os.environ.get('GROQ_MODEL', 'openai/gpt-oss-20b'),
             messages=[
                 {
                     'role': 'user',

@@ -178,3 +178,28 @@ When executing broad product queries (e.g., *"Find Nike shoes that have discount
 2. **Code-Level Safety Cap**: Added `response.head(5)` in `sql_chain` to enforce a hard cap before converting rows to dictionary context.
 3. **Fault-Tolerant Synthesis Fallback**: Wrapped `data_comprehension` in `try...except`. If a rate limit or API error occurs, the system automatically formats the products directly from the SQL records without requiring an LLM call.
 4. **Global Safe Error Handling**: Added `try...except` to `generate_sql_query()`, `faq.py`, `smalltalk.py`, and `main.py::ask()` to guarantee the Streamlit UI never crashes with unhandled tracebacks.
+
+---
+
+## 6. Incident Log: Streamlit Community Cloud Deployment ImportError
+
+### Symptom
+```
+ImportError: This app has encountered an error. The original error message is redacted to prevent data leaks.
+File "/mount/src/shopgenie-ecom-ai-assistant/app/main.py", line 8, in <module>
+    from router import router
+File "/mount/src/shopgenie-ecom-ai-assistant/app/router.py", line 1, in <module>
+    from semantic_router import Route, RouteLayer
+```
+
+### Root Cause
+1. **API Refactor in `semantic-router`**: In `semantic-router` 0.3.x, `RouteLayer` moved from root to `semantic_router.layer`. In 1.x+, `RouteLayer` was deprecated and replaced by `SemanticRouter`.
+2. **Subfolder Execution Path**: Streamlit Cloud runs apps from the repo root (`/mount/src/...`), requiring explicit `sys.path.insert(0, ...)` to reliably resolve module imports inside `app/`.
+3. **Requirement Discovery**: Streamlit Cloud looks for `requirements.txt` in the root or in the subfolder containing `main.py`. Without `app/requirements.txt`, package installations can be skipped depending on deployment configuration.
+
+### Resolution Applied
+1. **Multi-Version Router Imports**: Added tiered fallback imports in `app/router.py` supporting `0.0.x`, `0.3.x`, and `1.x` syntax.
+2. **Autonomous Fallback Router**: Implemented a standalone `FallbackRouter` in `app/router.py` using `SentenceTransformer` and cosine similarity directly. If `semantic_router` is missing or fails on Linux, the router switches seamlessly with identical `.name` outputs.
+3. **Path Resolution & Secrets Sync**: Added `sys.path.insert(0, ...)` and `st.secrets` synchronization into `os.environ` in `app/main.py`.
+4. **Mirrored Requirements**: Created `app/requirements.txt` mirroring the root `requirements.txt`.
+5. **Safe Environment Defaults**: Used `os.environ.get('GROQ_MODEL', 'openai/gpt-oss-20b')` across `sql.py`, `faq.py`, and `smalltalk.py`.

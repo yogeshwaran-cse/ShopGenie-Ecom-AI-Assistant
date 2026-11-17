@@ -1,7 +1,22 @@
+import os
+import sys
+from pathlib import Path
+
+# Ensure local modules in the app directory resolve on Streamlit Community Cloud
+current_dir = Path(__file__).parent.resolve()
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
+
 import streamlit as st
+
+# Sync Streamlit Cloud secrets into os.environ if present
+for secret_key in ["GROQ_API_KEY", "GROQ_MODEL"]:
+    if hasattr(st, "secrets") and secret_key in st.secrets:
+        if secret_key not in os.environ:
+            os.environ[secret_key] = st.secrets[secret_key]
+
 import re
 import time
-from pathlib import Path
 from faq import ingest_faq_data, faq_chain
 from sql import sql_chain
 from smalltalk import talk

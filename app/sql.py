@@ -9,7 +9,7 @@ from pandas import DataFrame
 
 load_dotenv()
 
-GROQ_MODEL = os.environ['GROQ_MODEL']
+GROQ_MODEL = os.environ.get('GROQ_MODEL', 'openai/gpt-oss-20b')
 
 db_path = str(Path(__file__).parent / "db.sqlite")
 
