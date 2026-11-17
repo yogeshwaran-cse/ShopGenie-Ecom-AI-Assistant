@@ -13,7 +13,7 @@ An intelligent, multi-route conversational AI shopping assistant designed for e-
 
 ## 📸 User Interface Preview
 
-![Product Search & Chat UI](app/resources/product-ss.png)
+![ShopGenie Modern Clean UI](app/resources/shopgenie-ui.png)
 
 ---
 
@@ -79,7 +79,8 @@ Ecommerce_chatbot/
 │   │   ├── architecture-diagram.png     # System architecture visual
 │   │   ├── ecommerce_data_final.csv    # Raw product catalog dataset (Flipkart)
 │   │   ├── faq_data.csv                # E-commerce store FAQs dataset
-│   │   └── product-ss.png              # UI preview screenshot
+│   │   ├── product-ss.png              # UI preview screenshot
+│   │   └── shopgenie-ui.png            # Modern clean UI screenshot
 │   ├── .env                            # API keys & model configuration
 │   ├── .env.example                    # Sample environment variables
 │   ├── db.sqlite                       # SQLite database (product table)
