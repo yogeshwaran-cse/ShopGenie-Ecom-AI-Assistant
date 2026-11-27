@@ -10,17 +10,21 @@ if str(current_dir) not in sys.path:
 import streamlit as st
 
 # Sync Streamlit Cloud secrets into os.environ if present
-for secret_key in ["GROQ_API_KEY", "GROQ_MODEL"]:
-    if hasattr(st, "secrets") and secret_key in st.secrets:
-        if secret_key not in os.environ:
+try:
+    for secret_key in ["GROQ_API_KEY", "GROQ_MODEL"]:
+        if secret_key in st.secrets and secret_key not in os.environ:
             os.environ[secret_key] = st.secrets[secret_key]
+except Exception:
+    pass
+
+from dotenv import load_dotenv
+
+load_dotenv(current_dir / ".env")
+load_dotenv()
 
 import re
-import time
-from faq import ingest_faq_data, faq_chain
-from sql import sql_chain
-from smalltalk import talk
-from router import router
+from faq import ingest_faq_data
+from graph import run_graph
 
 # ---------------------------------------------------------
 # Page Configuration
@@ -169,23 +173,6 @@ st.markdown("""
         border-radius: 50%;
         background-color: #10b981;
     }
-
-    /* Clean link formatting inside messages */
-    a.product-link-btn {
-        display: inline-block;
-        padding: 0.2rem 0.6rem;
-        background-color: #4f46e5;
-        color: white !important;
-        text-decoration: none;
-        border-radius: 6px;
-        font-weight: 500;
-        font-size: 0.82rem;
-        margin-left: 0.4rem;
-        transition: background-color 0.2s ease;
-    }
-    a.product-link-btn:hover {
-        background-color: #4338ca;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -225,29 +212,15 @@ def clean_and_format_text(text: str) -> str:
     return text
 
 # ---------------------------------------------------------
-# Core Query Handler with Semantic Routing
+# Core Query Handler with LangGraph Routing
 # ---------------------------------------------------------
 def ask(query: str):
     """
-    Intelligently routes query using semantic routing to FAQ, SQL, or Small-talk.
+    Intelligently routes query using LangGraph to FAQ, SQL, or Small-talk.
     Returns (answer_text, route_name, generated_sql).
     """
     try:
-        route_obj = router(query)
-        route_name = route_obj.name if route_obj else None
-        generated_sql = None
-
-        if route_name == 'faq':
-            answer = faq_chain(query)
-        elif route_name == 'sql':
-            answer, generated_sql = sql_chain(query, return_sql=True)
-        elif route_name == 'small-talk':
-            answer = talk(query)
-        else:
-            # Graceful fallback: If router similarity was below cutoff, try general assistant
-            route_name = 'small-talk'
-            answer = talk(query)
-
+        answer, route_name, generated_sql = run_graph(query)
         clean_answer = clean_and_format_text(answer)
         return clean_answer, route_name, generated_sql
     except Exception as e:
@@ -297,7 +270,7 @@ with st.sidebar:
     st.session_state.show_debug = st.checkbox(
         "Show Router Details & SQL Query",
         value=st.session_state.show_debug,
-        help="Displays the identified semantic route and generated SQL queries."
+        help="Displays the LangGraph-routed intent and generated SQL queries."
     )
 
     st.markdown("### 📊 Knowledge & Catalog Stats")
@@ -307,7 +280,7 @@ with st.sidebar:
     with col2:
         st.metric(label="FAQ Articles", value="10")
 
-    st.caption("• **Vector Store**: ChromaDB (all-MiniLM-L6-v2)\n• **Database**: SQLite3\n• **LLM Engine**: Groq API")
+    st.caption("• **Orchestrator**: LangGraph StateGraph\n• **Vector Store**: ChromaDB (all-MiniLM-L6-v2)\n• **Database**: SQLite3\n• **LLM Engine**: Groq API")
 
     st.divider()
 
@@ -324,7 +297,7 @@ st.markdown("""
         <span>🛍️</span> ShopGenie E-Commerce Assistant
     </div>
     <div class="hero-subtitle">
-        Intelligent product search, store policies, and shopping guidance powered by Semantic Routing & LLMs.
+        Intelligent product search, store policies, and shopping guidance powered by LangGraph Routing & LLMs.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -357,40 +330,48 @@ if len(st.session_state.message) == 0:
     """, unsafe_allow_html=True)
     st.write("")
 
+ROUTE_BADGE_CLASSES = {
+    'sql': 'badge-sql',
+    'faq': 'badge-faq',
+    'small-talk': 'badge-smalltalk',
+}
+
+ROUTE_LABELS = {
+    'sql': '🔍 Product Catalog (SQL Query)',
+    'faq': '📚 Store Knowledge Base (FAQ RAG)',
+    'small-talk': '💬 Conversational Assistant',
+}
+
+
+def render_assistant_message(content: str, route: str | None = None, sql: str | None = None) -> None:
+    """Render an assistant message with optional route badge and SQL inspector."""
+    if route and st.session_state.show_debug:
+        badge_class = ROUTE_BADGE_CLASSES.get(route, 'badge-default')
+        display_route = ROUTE_LABELS.get(route, f"Route: {route}")
+        st.markdown(
+            f'<span class="route-badge {badge_class}">{display_route}</span>',
+            unsafe_allow_html=True
+        )
+
+    st.markdown(content)
+
+    if sql and st.session_state.show_debug:
+        with st.expander("🔍 View Generated SQL Query", expanded=False):
+            st.code(sql, language="sql")
+
+
 # ---------------------------------------------------------
 # Chat History Display
 # ---------------------------------------------------------
 for msg in st.session_state.message:
     role = msg.get('role', 'user')
     content = msg.get('content', '')
-    route = msg.get('route')
-    sql = msg.get('sql')
 
     with st.chat_message(role, avatar="🧑‍💻" if role == "user" else "🛍️"):
-        if role == 'assistant' and route and st.session_state.show_debug:
-            badge_class = {
-                'sql': 'badge-sql',
-                'faq': 'badge-faq',
-                'small-talk': 'badge-smalltalk'
-            }.get(route, 'badge-default')
-
-            route_labels = {
-                'sql': '🔍 Product Catalog (SQL Query)',
-                'faq': '📚 Store Knowledge Base (FAQ RAG)',
-                'small-talk': '💬 Conversational Assistant'
-            }
-            display_route = route_labels.get(route, f"Route: {route}")
-
-            st.markdown(
-                f'<span class="route-badge {badge_class}">{display_route}</span>',
-                unsafe_allow_html=True
-            )
-
-        st.markdown(content)
-
-        if role == 'assistant' and sql and st.session_state.show_debug:
-            with st.expander("🔍 View Generated SQL Query", expanded=False):
-                st.code(sql, language="sql")
+        if role == 'assistant':
+            render_assistant_message(content, route=msg.get('route'), sql=msg.get('sql'))
+        else:
+            st.markdown(content)
 
 # ---------------------------------------------------------
 # Chat Input & Query Execution
@@ -408,35 +389,9 @@ if active_query:
     # 2. Compute response
     with st.chat_message("assistant", avatar="🛍️"):
         with st.spinner("Finding best answer..."):
-            start_time = time.time()
             response_text, route_name, sql_query = ask(active_query)
-            elapsed = time.time() - start_time
 
-        # Render route badge
-        if route_name and st.session_state.show_debug:
-            badge_class = {
-                'sql': 'badge-sql',
-                'faq': 'badge-faq',
-                'small-talk': 'badge-smalltalk'
-            }.get(route_name, 'badge-default')
-
-            route_labels = {
-                'sql': '🔍 Product Catalog (SQL Query)',
-                'faq': '📚 Store Knowledge Base (FAQ RAG)',
-                'small-talk': '💬 Conversational Assistant'
-            }
-            display_route = route_labels.get(route_name, f"Route: {route_name}")
-
-            st.markdown(
-                f'<span class="route-badge {badge_class}">{display_route}</span>',
-                unsafe_allow_html=True
-            )
-
-        st.markdown(response_text)
-
-        if sql_query and st.session_state.show_debug:
-            with st.expander("🔍 View Generated SQL Query", expanded=False):
-                st.code(sql_query, language="sql")
+        render_assistant_message(response_text, route=route_name, sql=sql_query)
 
     # 3. Save assistant message to state
     st.session_state.message.append({

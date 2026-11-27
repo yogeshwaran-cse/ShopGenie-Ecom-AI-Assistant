@@ -1,13 +1,14 @@
 # 🛍️ ShopGenie — Intelligent E-Commerce AI Assistant
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![uv](https://img.shields.io/badge/uv-package_manager-DE5FE9.svg)](https://docs.astral.sh/uv/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Agent_Routing-1C3C3C.svg)](https://langchain-ai.github.io/langgraph/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B.svg)](https://streamlit.io)
 [![Groq API](https://img.shields.io/badge/Groq-Powered_LLM-orange.svg)](https://groq.com)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector_Store-green.svg)](https://www.trychroma.com)
-[![Semantic Router](https://img.shields.io/badge/Semantic_Router-Aurelio_AI-purple.svg)](https://github.com/aurelio-labs/semantic-router)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An intelligent, multi-route conversational AI shopping assistant designed for e-commerce platforms. **ShopGenie** seamlessly navigates between natural language product searches, customer support FAQs, and friendly small-talk by combining **Semantic Routing**, **Text-to-SQL database querying**, and **ChromaDB vector Retrieval-Augmented Generation (RAG)** into a sleek, modern UI.
+An intelligent, multi-route conversational AI shopping assistant designed for e-commerce platforms. **ShopGenie** seamlessly navigates between natural language product searches, customer support FAQs, and friendly small-talk by combining **LangGraph StateGraph Routing**, **Text-to-SQL database querying**, and **ChromaDB vector Retrieval-Augmented Generation (RAG)** into a sleek, modern UI.
 
 ---
 
@@ -23,11 +24,11 @@ The assistant operates on a decoupled multi-agent routing architecture:
 
 ```mermaid
 flowchart TD
-    User([🧑‍💻 User Query]) --> Router["🧠 Semantic Router<br/>(all-MiniLM-L6-v2)"]
+    User([🧑‍💻 User Query]) --> Router["🧠 LangGraph Router Node<br/>(app/graph.py)"]
     
-    Router -->|Intent: sql| SQLAgent["🔍 SQL Catalog Agent"]
-    Router -->|Intent: faq| FAQAgent["📚 FAQ RAG Agent"]
-    Router -->|Intent: small-talk / fallback| TalkAgent["💬 Small-Talk Agent"]
+    Router -->|route: sql| SQLAgent["🔍 SQL Catalog Agent"]
+    Router -->|route: faq| FAQAgent["📚 FAQ RAG Agent"]
+    Router -->|route: small-talk| TalkAgent["💬 Small-Talk Agent"]
     
     subgraph SQL Pipeline
         SQLAgent --> GenSQL["Prompt -> Groq LLM<br/>(Generate SQL)"]
@@ -56,7 +57,7 @@ flowchart TD
 
 ## ✨ Key Features
 
-- **⚡ Zero-Shot Semantic Routing**: Fast intent classification using embedding-based sentence encoders (`sentence-transformers/all-MiniLM-L6-v2`) without incurring LLM latency or token overhead.
+- **⚡ LangGraph Intent Routing (`app/graph.py`)**: Stateful `StateGraph` orchestrator using Groq LLM classification with conditional edges and an embedding-similarity fallback to dispatch queries cleanly across specialized agents.
 - **🔍 Natural Language to SQL (NL-to-SQL)**: Dynamically translates complex search queries (brands, price caps, discounts, ratings, review volume) into safe SQLite `SELECT` queries on a catalog of 900+ products.
 - **📚 Semantic FAQ RAG**: Embeds customer care policies into ChromaDB to answer order tracking, returns, refunds, payment options, and international shipping questions with grounded truth.
 - **💬 Engaging Small Talk**: Friendly conversational agent providing natural interaction and graceful fallback when queries fall outside predefined catalog intents.
@@ -79,19 +80,19 @@ Ecommerce_chatbot/
 │   │   ├── architecture-diagram.png     # System architecture visual
 │   │   ├── ecommerce_data_final.csv    # Raw product catalog dataset (Flipkart)
 │   │   ├── faq_data.csv                # E-commerce store FAQs dataset
-│   │   ├── product-ss.png              # UI preview screenshot
 │   │   └── shopgenie-ui.png            # Modern clean UI screenshot
 │   ├── .env                            # API keys & model configuration
 │   ├── .env.example                    # Sample environment variables
 │   ├── db.sqlite                       # SQLite database (product table)
 │   ├── faq.py                          # ChromaDB RAG vector ingestion & QA chain
+│   ├── graph.py                        # LangGraph StateGraph router & workflow
 │   ├── main.py                         # Streamlit clean UI application
-│   ├── router.py                       # Semantic Router definitions & encoder
 │   ├── smalltalk.py                    # Conversational chatbot chain
 │   └── sql.py                          # NL-to-SQL generator & data comprehension
 ├── AGENTS.md                           # Multi-agent system documentation & session log
+├── pyproject.toml                      # uv project configuration & dependencies
 ├── README.md                           # Main project documentation
-└── requirements.txt                    # Python project dependencies
+└── uv.lock                             # Locked uv dependency graph
 ```
 
 ---
@@ -102,7 +103,8 @@ Ecommerce_chatbot/
 |---|---|---|
 | **Frontend UI** | [Streamlit](https://streamlit.io/) | Interactive web UI with custom modern CSS |
 | **LLM Provider** | [Groq Cloud](https://groq.com/) | High-speed inference (`openai/gpt-oss-20b`) |
-| **Semantic Router** | [semantic-router](https://github.com/aurelio-labs/semantic-router) | Aurelio AI semantic intent router |
+| **Orchestration & Routing** | [LangGraph](https://langchain-ai.github.io/langgraph/) | Stateful `StateGraph` routing between specialized agents |
+| **Package Manager** | [uv](https://docs.astral.sh/uv/) | Fast Python dependency & virtual environment management |
 | **Embeddings** | [Sentence Transformers](https://sbert.net/) | `sentence-transformers/all-MiniLM-L6-v2` |
 | **Vector DB** | [ChromaDB](https://www.trychroma.com/) | Embedding store for semantic FAQ search |
 | **Relational DB** | [SQLite3](https://sqlite.org/) | 903 Flipkart footwear products |
@@ -113,7 +115,8 @@ Ecommerce_chatbot/
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-- **Python 3.10+** installed on your system.
+- **[uv](https://docs.astral.sh/uv/)** installed on your system.
+- **Python 3.10+** (managed automatically by `uv`).
 - A **Groq API Key** (get one free at [console.groq.com](https://console.groq.com)).
 
 ### 2. Clone the Repository
@@ -122,23 +125,12 @@ git clone <repository-url>
 cd Ecommerce_chatbot
 ```
 
-### 3. Set Up a Virtual Environment
+### 3. Install Dependencies with `uv`
 ```bash
-# Windows
-python -m venv venv
-.\venv\Scripts\activate
-
-# macOS / Linux
-python3 -m venv venv
-source venv/bin/activate
+uv sync
 ```
 
-### 4. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 5. Configure Environment Variables
+### 4. Configure Environment Variables
 Create an `.env` file in the `app/` folder (or copy from `.env.example`):
 ```ini
 GROQ_API_KEY=gsk_your_groq_api_key_here
@@ -151,10 +143,10 @@ GROQ_MODEL=openai/gpt-oss-20b
 
 ## 🖥️ Running the Application
 
-Launch the Streamlit app from the project directory:
+Launch the Streamlit app from the project directory using `uv`:
 
 ```bash
-streamlit run app/main.py
+uv run streamlit run app/main.py
 ```
 
 The application will launch in your default browser at:
@@ -186,8 +178,8 @@ The application will launch in your default browser at:
 
 ## ⚙️ How Each Module Works
 
-### 1. Semantic Router (`app/router.py`)
-Uses the local `all-MiniLM-L6-v2` dense embedding model to represent predefined route utterances for `faq`, `sql`, and `small-talk`. Incoming user queries are embedded into the same vector space, and cosine similarity matches the query to the correct route in milliseconds.
+### 1. LangGraph Router (`app/graph.py`)
+Defines a compiled `StateGraph` with a `router` node that classifies incoming queries into `sql`, `faq`, or `small-talk` (with an embedding-similarity fallback), then routes via conditional edges to the appropriate agent node (`sql_agent`, `faq_agent`, or `smalltalk_agent`).
 
 ### 2. Product SQL Chain (`app/sql.py`)
 1. **Query Generation**: Formulates an executable SQLite `SELECT` query given the table schema.

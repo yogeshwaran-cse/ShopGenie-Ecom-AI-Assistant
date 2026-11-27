@@ -9,6 +9,7 @@ from pathlib import Path
 
 faqs_path = str(Path(__file__).parent / "resources/faq_data.csv")
 
+load_dotenv(Path(__file__).parent / ".env")
 load_dotenv()
 embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 

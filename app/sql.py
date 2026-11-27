@@ -5,8 +5,8 @@ import sqlite3
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
-from pandas import DataFrame
 
+load_dotenv(Path(__file__).parent / ".env")
 load_dotenv()
 
 GROQ_MODEL = os.environ.get('GROQ_MODEL', 'openai/gpt-oss-20b')
