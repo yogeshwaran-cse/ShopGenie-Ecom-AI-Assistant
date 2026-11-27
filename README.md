@@ -50,8 +50,8 @@ flowchart TD
     GenTalk --> UI
 ```
 
-### High-Level Architecture Diagram
-![System Architecture](app/resources/architecture-diagram.png)
+### LangGraph Workflow Diagram
+![LangGraph Workflow Diagram](app/resources/graph.png)
 
 ---
 
@@ -59,7 +59,7 @@ flowchart TD
 
 - **⚡ LangGraph Intent Routing (`app/graph.py`)**: Stateful `StateGraph` orchestrator using Groq LLM classification with conditional edges and an embedding-similarity fallback to dispatch queries cleanly across specialized agents.
 - **🔍 Natural Language to SQL (NL-to-SQL)**: Dynamically translates complex search queries (brands, price caps, discounts, ratings, review volume) into safe SQLite `SELECT` queries on a catalog of 900+ products.
-- **📚 Semantic FAQ RAG**: Embeds customer care policies into ChromaDB to answer order tracking, returns, refunds, payment options, and international shipping questions with grounded truth.
+- **📚 FAQ Vector RAG**: Embeds customer care policies into ChromaDB to answer order tracking, returns, refunds, payment options, and international shipping questions with grounded truth.
 - **💬 Engaging Small Talk**: Friendly conversational agent providing natural interaction and graceful fallback when queries fall outside predefined catalog intents.
 - **🎨 Modern Clean UI**:
   - Hero onboarding card with interactive feature highlights.
@@ -77,18 +77,18 @@ flowchart TD
 Ecommerce_chatbot/
 ├── app/
 │   ├── resources/
-│   │   ├── architecture-diagram.png     # System architecture visual
 │   │   ├── ecommerce_data_final.csv    # Raw product catalog dataset (Flipkart)
 │   │   ├── faq_data.csv                # E-commerce store FAQs dataset
+│   │   ├── graph.png                   # Generated LangGraph workflow diagram
 │   │   └── shopgenie-ui.png            # Modern clean UI screenshot
 │   ├── .env                            # API keys & model configuration
-│   ├── .env.example                    # Sample environment variables
 │   ├── db.sqlite                       # SQLite database (product table)
 │   ├── faq.py                          # ChromaDB RAG vector ingestion & QA chain
 │   ├── graph.py                        # LangGraph StateGraph router & workflow
 │   ├── main.py                         # Streamlit clean UI application
 │   ├── smalltalk.py                    # Conversational chatbot chain
 │   └── sql.py                          # NL-to-SQL generator & data comprehension
+├── .env.example                        # Sample environment variables
 ├── AGENTS.md                           # Multi-agent system documentation & session log
 ├── pyproject.toml                      # uv project configuration & dependencies
 ├── README.md                           # Main project documentation
