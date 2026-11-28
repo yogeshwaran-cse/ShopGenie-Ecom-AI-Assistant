@@ -408,13 +408,13 @@ def dispatch_node(state: GraphState) -> dict:
     filters = state.get("active_filters") or {}
     filter_parts: list[str] = []
     if filters.get("brand"):
-        filter_parts.append(f"brand: {filters['brand']}")
+        filter_parts.append(f"brand: {str(filters['brand']).strip().lower()}")
     if filters.get("max_price"):
         filter_parts.append(f"max price: {filters['max_price']}")
     if filters.get("min_rating"):
         filter_parts.append(f"minimum rating: {filters['min_rating']}")
     if filters.get("category"):
-        filter_parts.append(f"category: {filters['category']}")
+        filter_parts.append(f"category: {str(filters['category']).strip().lower()}")
     if filter_parts and "sql" in routes:
         effective_query = f"{query} (filters: {', '.join(filter_parts)})"
 
