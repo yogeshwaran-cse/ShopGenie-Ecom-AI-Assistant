@@ -6,49 +6,104 @@ This document provides a comprehensive record of the AI Agent architecture power
 
 ## 1. Multi-Agent System Architecture
 
-The chatbot is structured as a decoupled multi-agent decision and retrieval system. Rather than funneling every user query through an expensive monolithic LLM prompt, the system employs specialized agents coordinated by a zero-shot semantic router.
+The chatbot is structured as a decoupled multi-agent decision and retrieval system using a **Semantic-First Tiered Router** with **Multi-Intent support** and **Conversational Filter Memory**, orchestrated by a LangGraph `StateGraph`.
 
 ```
                     ┌─────────────────────────┐
                     │       User Query        │
                     └────────────┬────────────┘
                                  │
-                                 ▼
+                    ┌────────────▼────────────┐
+                    │  TIER 1: Semantic Gate  │
+                    │  (all-MiniLM-L6-v2)     │
+                    │  cosine similarity      │
+                    └──────┬──────────┬───────┘
+                           │          │
+              score≥0.78   │          │  ambiguous /
+              gap≥0.12     │          │  low confidence
+                           │          │
+              ⚡ Fast Path  │          │  🧠 Escalate
+                           │          ▼
+                           │  ┌──────────────────┐
+                           │  │ TIER 2: LLM      │
+                           │  │ Multi-Intent      │
+                           │  │ Router (Groq)     │
+                           │  │ + Filter Extract  │
+                           │  └────────┬─────────┘
+                           │           │
+                           ▼           ▼
                     ┌─────────────────────────┐
-                    │  Semantic Router Agent  │
-                    │   (all-MiniLM-L6-v2)    │
-                    └──────┬─────┬─────┬──────┘
-                           │     │     │
-            ┌──────────────┘     │     └──────────────┐
-            ▼                    ▼                    ▼
-   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-   │ SQL Catalog     │  │ FAQ Vector RAG  │  │ Small-Talk      │
-   │ Agent           │  │ Agent           │  │ Agent           │
-   │ (NL-to-SQL +    │  │ (ChromaDB +     │  │ (Persona +      │
-   │ Comprehension)  │  │ Groq LLM)       │  │ Fallback)       │
-   └────────┬────────┘  └────────┬────────┘  └────────┬────────┘
-            │                    │                    │
-            └──────────────┬─────┴────────────────────┘
-                           ▼
-              ┌─────────────────────────┐
-              │ Streamlit UI Controller │
-              │ (Badges, Links, SQL exp)│
-              └─────────────────────────┘
+                    │   Dispatch Node         │
+                    │  (fans out to 1+ agents)│
+                    └──┬──────┬──────┬────────┘
+                       │      │      │
+          ┌────────────┘      │      └────────────┐
+          ▼                   ▼                   ▼
+ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+ │ SQL Catalog     │ │ FAQ Vector RAG  │ │ Small-Talk      │
+ │ Agent           │ │ Agent           │ │ Agent           │
+ │ (NL-to-SQL +    │ │ (ChromaDB +     │ │ (Persona +      │
+ │ Comprehension)  │ │ Groq LLM)       │ │ Fallback)       │
+ └────────┬────────┘ └────────┬────────┘ └────────┬────────┘
+          │                   │                   │
+          └───────────┬───────┴───────────────────┘
+                      ▼
+           ┌──────────────────────┐
+           │ Synthesizer Node     │  (multi-route only)
+           │ Merges sql + faq     │
+           └──────────┬───────────┘
+                      ▼
+           ┌──────────────────────┐
+           │ Streamlit UI         │
+           │ (Tier badges,        │
+           │  route pills,        │
+           │  SQL inspector,      │
+           │  filter sidebar)     │
+           └──────────────────────┘
 ```
 
 ---
 
 ## 2. Specialized Agent Specifications
 
-### Agent 1: Semantic Router Agent (`app/router.py`)
-- **Role**: Intent classification and query dispatcher.
-- **Underlying Model**: `sentence-transformers/all-MiniLM-L6-v2` via Aurelio AI's `semantic-router`.
-- **Latency Profile**: Sub-50ms (local CPU embedding inference).
-- **Target Routes**:
-  1. `sql`: Triggers catalog search queries (e.g., shoe price, brand, rating, discount filters).
-  2. `faq`: Triggers store policy queries (e.g., returns, refunds, payment methods, delivery).
-  3. `small-talk`: Triggers conversational banter, greetings, and system identity queries.
-- **Fallback Policy**: In cases where cosine similarity falls below the router threshold, the query automatically routes to the Conversational Agent to guarantee a graceful, friendly response.
+### Agent 1: Semantic-First Tiered Router (`app/graph.py`)
+
+#### Tier 1 — Semantic Gate Node (`semantic_gate_node`)
+- **Role**: Zero-API-call intent classification via embedding cosine similarity.
+- **Underlying Model**: `sentence-transformers/all-MiniLM-L6-v2` (local CPU inference).
+- **Latency Profile**: Sub-50ms.
+- **Fast-Path Criteria**: `top_score >= 0.78` AND `(top_score - second_score) >= 0.12`.
+  - Sets `routing_source = "semantic_fast_path"`, bypasses LLM entirely.
+- **Escalation**: When scores are ambiguous or below threshold, forwards to Tier 2.
+
+#### Tier 2 — LLM Multi-Intent Router Node (`llm_router_node`)
+- **Role**: Complex/ambiguous/multi-intent classification with filter extraction.
+- **Underlying Model**: Groq (`GROQ_MODEL`, default `openai/gpt-oss-20b`).
+- **Capabilities**:
+  - Classifies queries into **one or more** routes: `sql`, `faq`, `small-talk`.
+  - Extracts and merges `active_filters` (brand, max_price, min_rating, category) across conversation turns.
+  - Sets `routing_source = "llm_escalated"`.
+- **Fallback Policy**: If Groq API fails, falls back to highest cosine label from Tier 1 with `routing_source = "semantic_fallback"`.
+
+#### Dispatch & Synthesis
+- **Dispatch Node**: Fans out execution to each active route's specialist agent.
+- **Synthesizer Node**: When `len(routes) > 1`, merges `sql_result` and `faq_result` into a single cohesive `final_response` via LLM, avoiding duplicate greetings.
+- **Finalize Node**: For single-route results, promotes the relevant result field to `final_response`.
+
+#### GraphState Schema
+```python
+class GraphState(TypedDict):
+    query: str
+    chat_history: list[dict]
+    routes: list[Literal["sql", "faq", "small-talk"]]
+    routing_source: Literal["semantic_fast_path", "llm_escalated", "semantic_fallback"]
+    confidence_score: float
+    active_filters: dict   # brand, max_price, min_rating, category
+    sql_query: str
+    sql_result: str
+    faq_result: str
+    final_response: str
+```
 
 ---
 

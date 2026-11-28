@@ -85,6 +85,7 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.05em;
         margin-bottom: 0.5rem;
+        margin-right: 0.3rem;
     }
     .badge-sql {
         background-color: #ede9fe;
@@ -105,6 +106,42 @@ st.markdown("""
         background-color: #f3f4f6;
         color: #374151;
         border: 1px solid #e5e7eb;
+    }
+
+    /* Tier indicator banner */
+    .tier-banner {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-bottom: 0.5rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+    .tier-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.2rem 0.65rem;
+        border-radius: 8px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+    }
+    .tier-fast {
+        background: linear-gradient(135deg, #fef9c3, #fef08a);
+        color: #854d0e;
+        border: 1px solid #fde047;
+    }
+    .tier-llm {
+        background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+        color: #5b21b6;
+        border: 1px solid #c4b5fd;
+    }
+    .tier-fallback {
+        background: linear-gradient(135deg, #fee2e2, #fecaca);
+        color: #991b1b;
+        border: 1px solid #fca5a5;
     }
 
     /* Welcome Card */
@@ -211,21 +248,82 @@ def clean_and_format_text(text: str) -> str:
     )
     return text
 
+
+# ---------------------------------------------------------
+# Routing display helpers
+# ---------------------------------------------------------
+ROUTE_BADGE_CLASSES = {
+    'sql': 'badge-sql',
+    'faq': 'badge-faq',
+    'small-talk': 'badge-smalltalk',
+}
+
+ROUTE_LABELS = {
+    'sql': '🔍 Product Catalog',
+    'faq': '📚 Store Knowledge Base',
+    'small-talk': '💬 Conversational',
+}
+
+TIER_CONFIG = {
+    'semantic_fast_path': ('⚡ Semantic Fast-Path', 'tier-fast'),
+    'llm_escalated':     ('🧠 LLM Escalated',      'tier-llm'),
+    'semantic_fallback': ('🔄 Semantic Fallback',   'tier-fallback'),
+}
+
+
+def build_tier_badge_html(
+    routing_source: str,
+    confidence: float,
+    routes: list[str],
+) -> str:
+    """Build the HTML for the tier indicator + route badges."""
+    tier_label, tier_class = TIER_CONFIG.get(
+        routing_source, ('❓ Unknown', 'tier-fallback')
+    )
+
+    # Confidence suffix for fast-path
+    conf_str = f" ({confidence:.2f})" if routing_source == "semantic_fast_path" else ""
+
+    parts = [
+        f'<span class="tier-label {tier_class}">{tier_label}{conf_str}</span>',
+        '<span style="color:#94a3b8;margin:0 0.15rem">•</span>',
+    ]
+
+    for route in routes:
+        badge_cls = ROUTE_BADGE_CLASSES.get(route, 'badge-default')
+        label = ROUTE_LABELS.get(route, route)
+        parts.append(f'<span class="route-badge {badge_cls}">{label}</span>')
+
+    return f'<div class="tier-banner">{"".join(parts)}</div>'
+
+
 # ---------------------------------------------------------
 # Core Query Handler with LangGraph Routing
 # ---------------------------------------------------------
-def ask(query: str):
+def ask(query: str, chat_history: list[dict] | None = None, active_filters: dict | None = None):
     """
-    Intelligently routes query using LangGraph to FAQ, SQL, or Small-talk.
-    Returns (answer_text, route_name, generated_sql).
+    Intelligently routes query using the tiered LangGraph router.
+    Returns dict with final_response, routes, routing_source, confidence_score,
+    active_filters, sql_query.
     """
     try:
-        answer, route_name, generated_sql = run_graph(query)
-        clean_answer = clean_and_format_text(answer)
-        return clean_answer, route_name, generated_sql
+        result = run_graph(
+            query,
+            chat_history=chat_history,
+            active_filters=active_filters,
+        )
+        result["final_response"] = clean_and_format_text(result.get("final_response", ""))
+        return result
     except Exception as e:
         print(f"Error in ask(): {e}")
-        return "I apologize, but I encountered an unexpected issue while processing your request. Please try again with a different query!", "error", None
+        return {
+            "final_response": "I apologize, but I encountered an unexpected issue while processing your request. Please try again with a different query!",
+            "routes": [],
+            "routing_source": "semantic_fallback",
+            "confidence_score": 0.0,
+            "active_filters": active_filters or {},
+            "sql_query": "",
+        }
 
 # ---------------------------------------------------------
 # Session State Initialization
@@ -236,6 +334,9 @@ if 'message' not in st.session_state:
 if 'show_debug' not in st.session_state:
     st.session_state.show_debug = True
 
+if 'active_filters' not in st.session_state:
+    st.session_state.active_filters = {}
+
 # ---------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------
@@ -243,7 +344,7 @@ with st.sidebar:
     st.markdown("""
         <div class="sidebar-brand">🛍️ ShopGenie AI</div>
         <div class="status-indicator">
-            <span class="status-dot"></span> System Ready & Active
+            <span class="status-dot"></span> System Ready &amp; Active
         </div>
     """, unsafe_allow_html=True)
 
@@ -257,6 +358,7 @@ with st.sidebar:
         ("🔄 Return & Refund policy", "What is the return policy of the products?"),
         ("💳 Payment methods", "What payment methods are accepted?"),
         ("👋 Who are you?", "What can you help me with?"),
+        ("🔀 Multi-intent test", "Nike shoes under 3000 and what is your return policy?"),
     ]
 
     for label, query_text in sample_queries:
@@ -270,7 +372,7 @@ with st.sidebar:
     st.session_state.show_debug = st.checkbox(
         "Show Router Details & SQL Query",
         value=st.session_state.show_debug,
-        help="Displays the LangGraph-routed intent and generated SQL queries."
+        help="Displays the tiered routing path, confidence scores, and generated SQL queries."
     )
 
     st.markdown("### 📊 Knowledge & Catalog Stats")
@@ -280,12 +382,24 @@ with st.sidebar:
     with col2:
         st.metric(label="FAQ Articles", value="10")
 
-    st.caption("• **Orchestrator**: LangGraph StateGraph\n• **Vector Store**: ChromaDB (all-MiniLM-L6-v2)\n• **Database**: SQLite3\n• **LLM Engine**: Groq API")
+    st.caption("• **Orchestrator**: LangGraph StateGraph\n• **Tier-1**: Cosine Similarity (MiniLM)\n• **Tier-2**: Groq LLM Multi-Intent\n• **Vector Store**: ChromaDB\n• **Database**: SQLite3")
+
+    # Active filters display
+    if st.session_state.active_filters:
+        st.divider()
+        st.markdown("### 🔍 Active Filters")
+        for k, v in st.session_state.active_filters.items():
+            if v is not None:
+                st.caption(f"**{k}**: {v}")
+        if st.button("🧹 Clear Filters", use_container_width=True):
+            st.session_state.active_filters = {}
+            st.rerun()
 
     st.divider()
 
     if st.button("🗑️ Clear Conversation", use_container_width=True):
         st.session_state.message = []
+        st.session_state.active_filters = {}
         st.rerun()
 
 # ---------------------------------------------------------
@@ -297,7 +411,7 @@ st.markdown("""
         <span>🛍️</span> ShopGenie E-Commerce Assistant
     </div>
     <div class="hero-subtitle">
-        Intelligent product search, store policies, and shopping guidance powered by LangGraph Routing & LLMs.
+        Intelligent product search, store policies, and shopping guidance powered by Semantic-First Tiered Routing &amp; LLMs.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -325,33 +439,27 @@ if len(st.session_state.message) == 0:
                 <b>💬 Conversational Support</b>
                 <p>Friendly small-talk and conversational assistance for a delightful shopping journey.</p>
             </div>
+            <div class="feature-box">
+                <b>🔀 Multi-Intent Routing</b>
+                <p>Ask about products AND policies in one message — our tiered router handles both simultaneously.</p>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
     st.write("")
 
-ROUTE_BADGE_CLASSES = {
-    'sql': 'badge-sql',
-    'faq': 'badge-faq',
-    'small-talk': 'badge-smalltalk',
-}
 
-ROUTE_LABELS = {
-    'sql': '🔍 Product Catalog (SQL Query)',
-    'faq': '📚 Store Knowledge Base (FAQ RAG)',
-    'small-talk': '💬 Conversational Assistant',
-}
-
-
-def render_assistant_message(content: str, route: str | None = None, sql: str | None = None) -> None:
-    """Render an assistant message with optional route badge and SQL inspector."""
-    if route and st.session_state.show_debug:
-        badge_class = ROUTE_BADGE_CLASSES.get(route, 'badge-default')
-        display_route = ROUTE_LABELS.get(route, f"Route: {route}")
-        st.markdown(
-            f'<span class="route-badge {badge_class}">{display_route}</span>',
-            unsafe_allow_html=True
-        )
+def render_assistant_message(
+    content: str,
+    routes: list[str] | None = None,
+    routing_source: str | None = None,
+    confidence: float = 0.0,
+    sql: str | None = None,
+) -> None:
+    """Render an assistant message with optional tier badge and SQL inspector."""
+    if routes and routing_source and st.session_state.show_debug:
+        badge_html = build_tier_badge_html(routing_source, confidence, routes)
+        st.markdown(badge_html, unsafe_allow_html=True)
 
     st.markdown(content)
 
@@ -369,7 +477,13 @@ for msg in st.session_state.message:
 
     with st.chat_message(role, avatar="🧑‍💻" if role == "user" else "🛍️"):
         if role == 'assistant':
-            render_assistant_message(content, route=msg.get('route'), sql=msg.get('sql'))
+            render_assistant_message(
+                content,
+                routes=msg.get('routes'),
+                routing_source=msg.get('routing_source'),
+                confidence=msg.get('confidence_score', 0.0),
+                sql=msg.get('sql'),
+            )
         else:
             st.markdown(content)
 
@@ -381,22 +495,43 @@ pending = st.session_state.pop('pending_query', None)
 active_query = pending if pending else user_input
 
 if active_query:
-    # 1. Render user message
+    # 1. Build prior chat history (before appending current query)
+    chat_history = [
+        {"role": m["role"], "content": m["content"]}
+        for m in st.session_state.message
+    ]
+
+    # 2. Render user message
     with st.chat_message("user", avatar="🧑‍💻"):
         st.markdown(active_query)
     st.session_state.message.append({'role': 'user', 'content': active_query})
 
-    # 2. Compute response
+    # 3. Compute response via tiered router
     with st.chat_message("assistant", avatar="🛍️"):
         with st.spinner("Finding best answer..."):
-            response_text, route_name, sql_query = ask(active_query)
+            result = ask(
+                active_query,
+                chat_history=chat_history,
+                active_filters=st.session_state.active_filters,
+            )
 
-        render_assistant_message(response_text, route=route_name, sql=sql_query)
+        render_assistant_message(
+            result["final_response"],
+            routes=result.get("routes"),
+            routing_source=result.get("routing_source"),
+            confidence=result.get("confidence_score", 0.0),
+            sql=result.get("sql_query"),
+        )
 
-    # 3. Save assistant message to state
+    # 4. Persist active_filters for next turn
+    st.session_state.active_filters = result.get("active_filters", {})
+
+    # 5. Save assistant message to state
     st.session_state.message.append({
         'role': 'assistant',
-        'content': response_text,
-        'route': route_name,
-        'sql': sql_query
+        'content': result["final_response"],
+        'routes': result.get("routes", []),
+        'routing_source': result.get("routing_source", ""),
+        'confidence_score': result.get("confidence_score", 0.0),
+        'sql': result.get("sql_query"),
     })

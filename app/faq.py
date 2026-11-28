@@ -42,6 +42,8 @@ def ingest_faq_data(path):
         print("FAQ Collection already exists.")     
 
 def get_relevant_qa(query):
+    if collection_name_faq not in [c.name for c in chroma_client.list_collections()]:
+        ingest_faq_data(faqs_path)
     collection = chroma_client.get_or_create_collection(
         name=collection_name_faq,
         embedding_function= ef
@@ -61,16 +63,28 @@ def generate_answer(query, context):
     QUESTION: {query}
     '''
     try:
-        completion = groq_client.chat.completions.create(
-            messages=[
+        model_name = os.environ.get('GROQ_MODEL', 'openai/gpt-oss-20b')
+        kwargs = {
+            'messages': [
                 {
-                    'role':'user',
-                    'content':prompt
+                    'role': 'user',
+                    'content': prompt
                 }
             ],
-            model= os.environ.get('GROQ_MODEL', 'openai/gpt-oss-20b')
-        )
-        return completion.choices[0].message.content
+            'model': model_name,
+            'max_tokens': 512,
+        }
+        if any(tag in model_name.lower() for tag in ('gpt-oss', 'qwen', 'deepseek')):
+            kwargs['reasoning_effort'] = 'low'
+        try:
+            completion = groq_client.chat.completions.create(**kwargs)
+        except Exception as param_err:
+            if 'reasoning_effort' in kwargs and 'reasoning_effort' in str(param_err).lower():
+                kwargs.pop('reasoning_effort', None)
+                completion = groq_client.chat.completions.create(**kwargs)
+            else:
+                raise
+        return (completion.choices[0].message.content or '').strip() or context
     except Exception as e:
         print(f"Error in Groq FAQ completion: {e}")
         return context

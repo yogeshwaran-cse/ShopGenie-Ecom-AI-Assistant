@@ -52,9 +52,27 @@ For example:
 """
 
 
+def _sql_groq_completion(messages, temperature=0.2, max_tokens=1024):
+    kwargs = {
+        "messages": messages,
+        "model": GROQ_MODEL,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if any(tag in GROQ_MODEL.lower() for tag in ("gpt-oss", "qwen", "deepseek")):
+        kwargs["reasoning_effort"] = "low"
+    try:
+        return client_sql.chat.completions.create(**kwargs)
+    except Exception as err:
+        if "reasoning_effort" in kwargs and "reasoning_effort" in str(err).lower():
+            kwargs.pop("reasoning_effort", None)
+            return client_sql.chat.completions.create(**kwargs)
+        raise
+
+
 def generate_sql_query(question):
     try:
-        chat_completion = client_sql.chat.completions.create(
+        chat_completion = _sql_groq_completion(
             messages=[
                 {
                     "role": "system",
@@ -65,11 +83,10 @@ def generate_sql_query(question):
                     "content": question,
                 }
             ],
-            model=GROQ_MODEL,
             temperature=0.2,
-            max_tokens=1024
+            max_tokens=1024,
         )
-        return chat_completion.choices[0].message.content
+        return chat_completion.choices[0].message.content or ""
     except Exception as e:
         print(f"Error generating SQL: {e}")
         return ""
@@ -84,7 +101,19 @@ def run_query(query):
 
 
 def data_comprehension(question, context):
-    chat_completion = client_sql.chat.completions.create(
+    # Replace long product URLs with short placeholders to keep token usage well within TPM limits
+    url_map = {}
+    compact_context = []
+    for idx, row in enumerate(context):
+        item = dict(row)
+        link = item.get("product_link")
+        if link:
+            token = f"URL_{idx}"
+            url_map[token] = link
+            item["product_link"] = token
+        compact_context.append(item)
+
+    chat_completion = _sql_groq_completion(
         messages=[
             {
                 "role": "system",
@@ -92,15 +121,24 @@ def data_comprehension(question, context):
             },
             {
                 "role": "user",
-                "content": f"QUESTION: {question}. DATA: {context}",
+                "content": f"QUESTION: {question}. DATA: {compact_context}",
             }
         ],
-        model=GROQ_MODEL,
         temperature=0.2,
-        # max_tokens=1024
+        max_tokens=1024,
     )
 
-    return chat_completion.choices[0].message.content
+    content = (chat_completion.choices[0].message.content or "").strip()
+    if not content:
+        raise ValueError("Empty data_comprehension output from Groq")
+
+    # Restore real links only if all placeholders survived intact; otherwise trigger fallback formatter
+    for token, link in url_map.items():
+        if token not in content:
+            raise ValueError(f"Missing placeholder {token} in data_comprehension output")
+        content = content.replace(token, link)
+
+    return content
 
 
 
